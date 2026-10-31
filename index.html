@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Chess - Grandmaster Arena & Cartoon Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDK Imports for Realtime Multiplayer, Friends & Chat -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, addDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'chess-app-v3';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "demo", authDomain: "demo.firebaseapp.com", projectId: "demo", storageBucket: "demo.appspot.com"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        window.db = db;
+        window.auth = auth;
+        window.appId = appId;
+
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch(e) { console.log('Auth fallback:', e); }
+        }
+        initAuth();
+    </script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        heading: ['Cinzel', 'serif'],
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                    },
+                    colors: {
+                        wood: {
+                            800: '#2b1810',
+                            900: '#1c0f0a',
+                            dark: '#140a06',
+                            gold: '#dfb259',
+                            lightgold: '#f7d788'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            user-select: none;
+            background: radial-gradient(circle at center, #1b202e 0%, #0d1017 100%);
+            color: #f1f5f9;
+        }
+
+        .square {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            aspect-ratio: 1;
+        }
+
+        /* High-Definition Animated Vector Piece Containers */
+        .piece-icon {
+            width: 88%;
+            height: 88%;
+            cursor: pointer;
+            transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease;
+            z-index: 10;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6));
+        }
+
+        .piece-icon:hover {
+            transform: scale(1.15) translateY(-3px);
+            filter: drop-shadow(0 8px 12px rgba(223, 178, 89, 0.5));
+        }
+
+        /* Chess Board Themes */
+        /* Beginner Theme: Warm Rosewood & Cream Walnut */
+        .theme-beginner .sq-light { background-color: #f2e3c6; background-image: radial-gradient(#fff 15%, transparent 16%); background-size: 16px 16px; }
+        .theme-beginner .sq-dark { background-color: #8c5338; background-image: radial-gradient(#6b3e28 15%, transparent 16%); background-size: 16px 16px; }
+        .theme-beginner .sq-selected { background-color: #c48b29 !important; box-shadow: inset 0 0 0 3px #ffe285, 0 0 15px rgba(234, 179, 8, 0.6); }
+        .theme-beginner .sq-highlight::after {
+            content: '';
+            position: absolute;
+            width: 32%;
+            height: 32%;
+            border-radius: 50%;
+            background-color: #22c55e;
+            box-shadow: 0 0 12px #22c55e;
+            animation: pulseDot 1.5s infinite alternate;
+        }
+        .theme-beginner .sq-capture::after {
+            content: '';
+            position: absolute;
+            width: 88%;
+            height: 88%;
+            border-radius: 50%;
+            border: 4px solid #f43f5e;
+            box-shadow: inset 0 0 12px #f43f5e;
+            animation: pulseRing 1.2s infinite alternate;
+        }
+        .theme-beginner .sq-idea {
+            animation: pulseIdea 1.2s infinite alternate;
+        }
+
+        @keyframes pulseDot {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            100% { transform: scale(1.15); opacity: 1; }
+        }
+        @keyframes pulseRing {
+            0% { transform: scale(0.95); }
+            100% { transform: scale(1.03); }
+        }
+        @keyframes pulseIdea {
+            0% { box-shadow: inset 0 0 0 4px #22c55e, 0 0 10px #22c55e; }
+            100% { box-shadow: inset 0 0 0 4px #86efac, 0 0 20px #86efac; }
+        }
+
+        /* Professional Theme: Dark Ebony & Pure Pearl Marble */
+        .theme-pro .sq-light { background-color: #e5e7eb; }
+        .theme-pro .sq-dark { background-color: #2e3748; }
+        .theme-pro .sq-selected { background-color: #9333ea !important; box-shadow: inset 0 0 0 3px #c084fc; }
+
+        /* Floating Score Popups */
+        @keyframes popupAnim {
+            0% { opacity: 0; transform: translate(-50%, 0) scale(0.7); }
+            20% { opacity: 1; transform: translate(-50%, -24px) scale(1.15); }
+            80% { opacity: 1; transform: translate(-50%, -40px) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -60px) scale(0.8); }
+        }
+
+        .score-popup {
+            position: fixed;
+            left: 50%;
+            top: 40%;
+            transform: translateX(-50%);
+            z-index: 100;
+            pointer-events: none;
+            animation: popupAnim 2s forwards cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .wood-border {
+            border: 10px solid #2b1810;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.8), inset 0 0 10px rgba(0,0,0,0.9);
+            border-image: linear-gradient(to bottom right, #422317, #1c0f0a, #422317) 1 100%;
+        }
+
+        .gold-glow {
+            text-shadow: 0 0 10px rgba(223, 178, 89, 0.5);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between font-sans overflow-x-hidden">
+
+    <!-- TOP HEADER BAR - GRANDMASTER WOOD & GOLD THEME -->
+    <header class="bg-gradient-to-r from-wood-900 via-wood-800 to-wood-900 border-b-2 border-wood-gold/40 px-5 py-3 sticky top-0 z-40 flex justify-between items-center shadow-2xl backdrop-blur-md">
+        <div class="flex items-center space-x-3.5 cursor-pointer" onclick="showHomeScreen()">
+            <div class="bg-gradient-to-b from-wood-lightgold to-wood-gold p-2.5 rounded-xl text-wood-dark font-bold shadow-lg border border-yellow-200/50 flex items-center justify-center">
+                <i class="fa-solid fa-chess-king text-xl"></i>
+            </div>
+            <div>
+                <h1 class="font-heading text-xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-wood-lightgold via-yellow-200 to-wood-gold gold-glow leading-none">
+                    CHESS ARENA
+                </h1>
+                <span id="active-mode-tag" class="text-[11px] text-wood-lightgold/70 font-semibold tracking-wide">Grandmaster Edition</span>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-3">
+            <!-- BACK TO MAIN MENU BUTTON -->
+            <button id="nav-home-btn" onclick="showHomeScreen()" class="hidden bg-wood-dark/80 hover:bg-wood-dark text-wood-lightgold border border-wood-gold/40 px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 shadow-inner">
+                <i class="fa-solid fa-house text-wood-gold"></i>
+                <span>Menu</span>
+            </button>
+
+            <!-- CHAT TOGGLE BUTTON -->
+            <button id="chat-toggle-btn" onclick="toggleChatDrawer()" class="hidden bg-gradient-to-r from-wood-gold to-amber-600 hover:from-wood-lightgold hover:to-amber-500 text-wood-dark font-extrabold px-3.5 py-1.5 rounded-lg text-xs transition flex items-center gap-2 shadow-md">
+                <i class="fa-solid fa-comments"></i>
+                <span>Chat</span>
+            </button>
+
+            <button onclick="openAuthModal()" id="user-btn" class="bg-wood-dark/90 border border-wood-gold/30 rounded-full px-3.5 py-1.5 text-xs flex items-center gap-2.5 hover:border-wood-gold/70 transition shadow-inner">
+                <div id="avatar-circle" class="w-5 h-5 rounded-full bg-gradient-to-tr from-wood-gold to-yellow-200 text-wood-dark flex items-center justify-center font-black text-[10px] shadow">G</div>
+                <span id="player-display-name" class="font-bold text-slate-200">Guest</span>
+            </button>
+            <button onclick="toggleAudio()" class="p-2 bg-wood-dark/90 hover:bg-wood-dark text-wood-gold rounded-lg border border-wood-gold/30 transition">
+                <i id="audio-icon" class="fa-solid fa-volume-high text-xs"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- FLOATING POPUP CONTAINER -->
+    <div id="popup-container"></div>
+
+    <!-- MAIN CONTAINER -->
+    <main class="flex-grow flex items-center justify-center p-4 relative">
+
+        <!-- ================= MAIN MENU / MODE SELECTION ================= -->
+        <div id="home-screen" class="max-w-md w-full bg-gradient-to-b from-slate-900 via-wood-900 to-slate-950 border-2 border-wood-gold/30 rounded-3xl p-7 shadow-2xl text-center relative overflow-hidden backdrop-blur-xl">
+            
+            <div class="absolute -top-12 -left-12 w-32 h-32 bg-wood-gold/10 rounded-full blur-2xl"></div>
+            <div class="absolute -bottom-12 -right-12 w-32 h-32 bg-wood-gold/10 rounded-full blur-2xl"></div>
+
+            <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-wood-lightgold via-wood-gold to-amber-700 rounded-2xl flex items-center justify-center text-wood-dark text-4xl shadow-xl border-2 border-yellow-100/40">
+                <i class="fa-solid fa-chess-queen"></i>
+            </div>
+            <h2 class="font-heading text-2.5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-wood-lightgold via-yellow-100 to-wood-gold mb-1">CHESS ARENA</h2>
+            <p class="text-xs text-slate-400 mb-6 font-medium">Choose your playstyle to enter the arena</p>
+
+            <!-- MODE SELECTION CARDS -->
+            <div class="space-y-4 mb-6">
+                <!-- BEGINNER GAMER CARD -->
+                <div onclick="selectMode('beginner')" id="card-beginner" class="p-4 rounded-2xl border-2 border-wood-gold bg-wood-800/80 cursor-pointer text-left transition-all duration-200 flex items-center justify-between shadow-lg">
+                    <div class="font-bold text-sm text-slate-100 flex items-center gap-3.5">
+                        <div class="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center text-wood-lightgold border border-amber-500/30">
+                            <i class="fa-solid fa-graduation-cap text-base"></i>
+                        </div>
+                        <div>
+                            <span class="block text-slate-100 font-extrabold text-base">Beginner Gamer</span>
+                            <span class="text-[11px] text-slate-300 font-normal">Hints, Undo/Redo & Casual Gameplay</span>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-circle-check text-wood-lightgold text-xl" id="icon-beginner"></i>
+                </div>
+
+                <!-- PROFESSIONAL PLAYER CARD -->
+                <div onclick="selectMode('pro')" id="card-pro" class="p-4 rounded-2xl border-2 border-slate-800 bg-slate-900/60 cursor-pointer text-left transition-all duration-200 flex items-center justify-between shadow">
+                    <div class="font-bold text-sm text-slate-100 flex items-center gap-3.5">
+                        <div class="w-9 h-9 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-400 border border-purple-500/30">
+                            <i class="fa-solid fa-trophy text-base"></i>
+                        </div>
+                        <div>
+                            <span class="block text-slate-100 font-extrabold text-base">Professional Player</span>
+                            <span class="text-[11px] text-slate-400 font-normal">Strict Rules & Match Timers</span>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-circle-check text-slate-700 text-xl" id="icon-pro"></i>
+                </div>
+            </div>
+
+            <!-- TIMER SELECTION FOR PROFESSIONAL MODE -->
+            <div id="pro-timer-box" class="hidden mb-6 bg-slate-950/80 p-3.5 rounded-2xl border border-wood-gold/20 text-left">
+                <label class="text-xs font-bold text-wood-lightgold mb-2 block flex items-center gap-1.5">
+                    <i class="fa-solid fa-clock"></i> Match Clock Limit:
+                </label>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <button onclick="setProTimer(15)" id="btn-timer-15" class="py-2.5 text-xs font-extrabold rounded-xl border border-wood-gold bg-wood-gold/20 text-wood-lightgold shadow">15 Minutes</button>
+                    <button onclick="setProTimer(30)" id="btn-timer-30" class="py-2.5 text-xs font-extrabold rounded-xl border border-slate-800 bg-slate-900 text-slate-400">30 Minutes</button>
+                </div>
+            </div>
+
+            <!-- PLAY ACTION BUTTONS -->
+            <div class="space-y-3">
+                <button onclick="startMatch('pass-play')" class="w-full py-3.5 bg-gradient-to-r from-wood-lightgold via-wood-gold to-amber-600 hover:brightness-110 text-wood-dark font-black text-sm tracking-wider rounded-xl shadow-xl transition transform active:scale-95 border border-yellow-200/50">
+                    PLAY LOCAL PASS & PLAY
+                </button>
+                <button onclick="openOnlineModal()" class="w-full py-3 bg-wood-dark hover:bg-slate-900 text-wood-lightgold font-bold text-xs rounded-xl border border-wood-gold/40 transition flex items-center justify-center gap-2.5 shadow">
+                    <i class="fa-solid fa-globe text-wood-gold"></i>
+                    <span>PLAY ONLINE (1v1 ROOM CODE)</span>
+                </button>
+            </div>
+        </div>
+
+
+        <!-- ================= GAME ARENA BOARD SCREEN ================= -->
+        <div id="game-arena" class="hidden w-full max-w-5xl flex flex-col lg:flex-row items-center justify-center gap-6">
+
+            <!-- BLACK PLAYER CARD & CAPTURES -->
+            <div class="w-full lg:w-64 flex flex-col gap-3">
+                <div class="bg-gradient-to-br from-slate-900 to-wood-900 border border-wood-gold/30 rounded-2xl p-3.5 flex justify-between items-center shadow-xl">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-slate-950 border border-slate-700 flex items-center justify-center text-slate-100 font-bold text-xl shadow-inner">♚</div>
+                        <div>
+                            <div class="font-bold text-xs text-slate-100" id="black-name">Black Player</div>
+                            <div class="text-[11px] text-wood-lightgold font-bold">Score: <span id="black-score" class="text-white font-extrabold">0</span> pts</div>
+                        </div>
+                    </div>
+                    <div id="black-timer-display" class="hidden bg-slate-950 border border-wood-gold/30 px-3 py-1.5 rounded-xl font-mono text-xs font-black text-wood-lightgold">15:00</div>
+                </div>
+
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 shadow-md">
+                    <div class="text-[11px] text-slate-400 font-bold mb-1.5 flex items-center justify-between">
+                        <span>Captured Pieces</span>
+                        <i class="fa-solid fa-box-archive text-slate-600 text-xs"></i>
+                    </div>
+                    <div id="black-graveyard" class="flex flex-wrap gap-1 min-h-[44px] bg-slate-950/80 p-2 rounded-xl border border-slate-800/80 items-center"></div>
+                </div>
+            </div>
+
+            <!-- CHESSBOARD CONTAINER -->
+            <div class="flex flex-col items-center w-full max-w-[480px]">
+                <!-- DANGER CHECK ALERT -->
+                <div id="check-alert" class="hidden w-full mb-2.5 bg-rose-600 text-white font-black text-xs py-2 text-center rounded-xl animate-bounce border border-rose-400 shadow-lg tracking-wider">
+                    <i class="fa-solid fa-triangle-exclamation mr-1.5"></i> CHECK! YOUR KING IS UNDER ATTACK!
+                </div>
+
+                <div class="w-full aspect-square p-3 bg-wood-900 rounded-3xl wood-border relative">
+                    <div id="chessboard" class="w-full h-full grid grid-cols-8 grid-rows-8 rounded-lg overflow-hidden theme-beginner shadow-2xl"></div>
+
+                    <!-- VICTORY MODAL OVERLAY -->
+                    <div id="win-modal" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center p-6 text-center z-50">
+                        <div class="w-20 h-20 rounded-full bg-wood-gold/20 border-2 border-wood-gold flex items-center justify-center text-wood-lightgold text-4xl mb-4 animate-bounce">
+                            <i class="fa-solid fa-trophy"></i>
+                        </div>
+                        <h3 id="win-title" class="font-heading text-3xl font-black text-wood-lightgold mb-1">MATCH WON!</h3>
+                        <p id="win-desc" class="text-xs text-slate-300 mb-6">White Player won the game!</p>
+                        <button onclick="showHomeScreen()" class="px-6 py-3 bg-gradient-to-r from-wood-lightgold to-wood-gold text-wood-dark font-black rounded-xl text-xs transition shadow-lg hover:brightness-110">
+                            Back to Main Menu
+                        </button>
+                    </div>
+                </div>
+
+                <!-- BEGINNER EXCLUSIVE TOOLBAR -->
+                <div id="beginner-controls" class="w-full mt-3.5 flex items-center justify-between gap-2.5">
+                    <button onclick="undoMove()" class="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition shadow">
+                        <i class="fa-solid fa-rotate-left text-wood-gold"></i> Undo
+                    </button>
+                    <button onclick="getIdeaHint()" class="flex-1 py-2.5 bg-gradient-to-r from-wood-lightgold via-wood-gold to-amber-600 hover:brightness-110 text-wood-dark font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition">
+                        <i class="fa-solid fa-lightbulb"></i> Idea (आईडिया)
+                    </button>
+                    <button onclick="redoMove()" class="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition shadow">
+                        <i class="fa-solid fa-rotate-right text-wood-gold"></i> Redo
+                    </button>
+                </div>
+
+                <div id="turn-banner" class="w-full mt-3 bg-wood-900/90 border border-wood-gold/30 rounded-xl py-2.5 text-center text-xs font-black text-wood-lightgold shadow-md tracking-wider">
+                    White Player Turn
+                </div>
+            </div>
+
+            <!-- WHITE PLAYER CARD & CAPTURES -->
+            <div class="w-full lg:w-64 flex flex-col gap-3">
+                <div class="bg-gradient-to-br from-slate-900 to-wood-900 border border-wood-gold/30 rounded-2xl p-3.5 flex justify-between items-center shadow-xl">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-300 flex items-center justify-center text-slate-950 font-bold text-xl shadow-inner">♔</div>
+                        <div>
+                            <div class="font-bold text-xs text-slate-100" id="white-name">White Player</div>
+                            <div class="text-[11px] text-wood-lightgold font-bold">Score: <span id="white-score" class="text-white font-extrabold">0</span> pts</div>
+                        </div>
+                    </div>
+                    <div id="white-timer-display" class="hidden bg-slate-950 border border-wood-gold/30 px-3 py-1.5 rounded-xl font-mono text-xs font-black text-wood-lightgold">15:00</div>
+                </div>
+
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 shadow-md">
+                    <div class="text-[11px] text-slate-400 font-bold mb-1.5 flex items-center justify-between">
+                        <span>Captured Pieces</span>
+                        <i class="fa-solid fa-box-archive text-slate-600 text-xs"></i>
+                    </div>
+                    <div id="white-graveyard" class="flex flex-wrap gap-1 min-h-[44px] bg-slate-950/80 p-2 rounded-xl border border-slate-800/80 items-center"></div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- ONLINE MULTIPLAYER MODAL -->
+    <div id="online-modal" class="hidden fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border-2 border-wood-gold/40 rounded-3xl max-w-sm w-full p-6 shadow-2xl relative">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3 mb-4">
+                <h3 class="font-heading text-base font-bold text-wood-lightgold flex items-center gap-2">
+                    <i class="fa-solid fa-globe"></i> Online 1v1 Room
+                </h3>
+                <button onclick="closeOnlineModal()" class="text-slate-400 hover:text-slate-200 text-lg"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="space-y-4">
+                <!-- CREATE ROOM -->
+                <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                    <button onclick="createOnlineRoom()" class="w-full py-2.5 bg-gradient-to-r from-wood-lightgold to-wood-gold hover:brightness-110 text-wood-dark font-extrabold text-xs rounded-xl transition shadow">
+                        Create New Room Code
+                    </button>
+                    <div id="generated-code-box" class="hidden text-center bg-slate-900 p-2.5 rounded-xl border border-wood-gold/30 mt-2.5">
+                        <span class="text-[10px] text-slate-400 block mb-0.5">Share Code With Friend:</span>
+                        <span id="room-code-display" class="font-mono text-xl font-black text-wood-lightgold tracking-widest">------</span>
+                    </div>
+                </div>
+
+                <!-- JOIN ROOM -->
+                <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                    <label class="block text-[11px] text-slate-400 mb-1.5 font-semibold">Enter Room Code:</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="join-code-input" placeholder="e.g. 849201" maxlength="6" class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-wood-lightgold font-mono tracking-widest focus:outline-none focus:border-wood-gold">
+                        <button onclick="joinOnlineRoom()" class="px-4 bg-wood-dark hover:bg-slate-800 text-wood-lightgold border border-wood-gold/30 font-bold text-xs rounded-xl transition">
+                            Join
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ADD FRIEND -->
+                <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                    <label class="block text-[11px] text-slate-400 mb-1.5 font-semibold">Add Friend:</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="add-friend-input" placeholder="Friend Username" class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-wood-gold">
+                        <button onclick="addFriend()" class="px-3 bg-wood-gold/20 hover:bg-wood-gold/30 text-wood-lightgold border border-wood-gold/40 font-bold text-xs rounded-xl transition">
+                            + Add
+                        </button>
+                    </div>
+                    <div id="friends-list" class="mt-2 text-[11px] text-slate-400 max-h-20 overflow-y-auto space-y-1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- IN-GAME CHAT DRAWER -->
+    <div id="chat-drawer" class="hidden fixed bottom-4 right-4 w-80 bg-slate-900 border-2 border-wood-gold/40 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden">
+        <div class="bg-wood-900 border-b border-wood-gold/30 px-3.5 py-2.5 flex justify-between items-center">
+            <span class="font-bold text-xs text-wood-lightgold flex items-center gap-2"><i class="fa-solid fa-comments"></i> Live Room Chat</span>
+            <button onclick="toggleChatDrawer()" class="text-slate-400 hover:text-slate-200 text-xs"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="chat-messages" class="h-48 p-3 overflow-y-auto space-y-2 text-xs bg-slate-950/70"></div>
+        <form onsubmit="sendChatMessage(event)" class="p-2.5 border-t border-slate-800 flex gap-2 bg-slate-900">
+            <input type="text" id="chat-input" placeholder="Type message..." class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-wood-gold">
+            <button type="submit" class="px-3.5 bg-wood-gold hover:bg-wood-lightgold text-wood-dark font-extrabold rounded-xl text-xs transition">
+                Send
+            </button>
+        </form>
+    </div>
+
+    <!-- ACCOUNT / AUTH MODAL -->
+    <div id="auth-modal" class="hidden fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border-2 border-wood-gold/40 rounded-3xl max-w-sm w-full p-6 shadow-2xl relative">
+            <div class="flex justify-between items-center border-b border-slate-800 pb-3 mb-4">
+                <h3 class="font-heading text-sm font-bold text-wood-lightgold">Player Account</h3>
+                <button onclick="closeAuthModal()" class="text-slate-400 hover:text-slate-200"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="saveUserAccount(event)" class="space-y-3.5">
+                <div>
+                    <label class="block text-[11px] text-slate-400 mb-1">Display Name</label>
+                    <input type="text" id="acc-name" placeholder="Enter name" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-wood-gold">
+                </div>
+                <div>
+                    <label class="block text-[11px] text-slate-400 mb-1">Email / Mobile Number</label>
+                    <input type="text" id="acc-id" placeholder="user@mail.com or mobile" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-wood-gold">
+                </div>
+                <button type="submit" class="w-full py-2.5 bg-gradient-to-r from-wood-lightgold to-wood-gold text-wood-dark font-extrabold text-xs rounded-xl transition shadow mt-2">
+                    Save Account
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- SCRIPT ENGINE -->
+    <script>
+        // High Quality 3D Cartoon Vector SVGs for Pieces
+        const PIECE_SVGS = {
+            // WHITE CARTOON PIECES (Glossy Ivory + Gold Crown/Trim + Bold Outlines)
+            'K': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="wG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e0d0b0"/></linearGradient>
+                        <linearGradient id="wGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffe899"/><stop offset="100%" stop-color="#d49a22"/></linearGradient>
+                    </defs>
+                    <path d="M 50 10 L 50 22 M 44 16 L 56 16" stroke="#2b1810" stroke-width="6" stroke-linecap="round"/>
+                    <path d="M 50 10 L 50 22 M 44 16 L 56 16" stroke="#ffe899" stroke-width="3" stroke-linecap="round"/>
+                    <path d="M 22 88 Q 20 55 32 40 Q 30 24 50 24 Q 70 24 68 40 Q 80 55 78 88 Z" fill="url(#wG)" stroke="#2b1810" stroke-width="4"/>
+                    <ellipse cx="50" cy="36" rx="20" ry="10" fill="url(#wGold)" stroke="#2b1810" stroke-width="3"/>
+                    <circle cx="50" cy="58" r="8" fill="#d49a22" stroke="#2b1810" stroke-width="2"/>
+                    <rect x="20" y="82" width="60" height="10" rx="4" fill="url(#wGold)" stroke="#2b1810" stroke-width="3"/>
+                  </svg>`,
+
+            'Q': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="wQ" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e6d5b8"/></linearGradient>
+                        <linearGradient id="wGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffe899"/><stop offset="100%" stop-color="#d49a22"/></linearGradient>
+                    </defs>
+                    <circle cx="22" cy="22" r="5" fill="#f43f5e" stroke="#2b1810" stroke-width="2"/>
+                    <circle cx="50" cy="16" r="6" fill="#3b82f6" stroke="#2b1810" stroke-width="2"/>
+                    <circle cx="78" cy="22" r="5" fill="#f43f5e" stroke="#2b1810" stroke-width="2"/>
+                    <path d="M 22 26 L 33 42 L 50 22 L 67 42 L 78 26 L 74 88 L 26 88 Z" fill="url(#wQ)" stroke="#2b1810" stroke-width="4"/>
+                    <path d="M 30 48 Q 50 58 70 48 L 68 82 Q 50 88 32 82 Z" fill="url(#wGold)" stroke="#2b1810" stroke-width="3"/>
+                    <rect x="20" y="82" width="60" height="10" rx="4" fill="url(#wQ)" stroke="#2b1810" stroke-width="3"/>
+                  </svg>`,
+
+            'R': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="wR" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#dbcaac"/></linearGradient>
+                    </defs>
+                    <path d="M 25 22 H 35 V 32 H 45 V 22 H 55 V 32 H 65 V 22 H 75 V 40 L 68 46 V 82 H 32 V 46 L 25 40 Z" fill="url(#wR)" stroke="#2b1810" stroke-width="4"/>
+                    <line x1="32" y1="52" x2="68" y2="52" stroke="#2b1810" stroke-width="3"/>
+                    <line x1="32" y1="72" x2="68" y2="72" stroke="#2b1810" stroke-width="3"/>
+                    <rect x="20" y="82" width="60" height="10" rx="4" fill="url(#wR)" stroke="#2b1810" stroke-width="3"/>
+                  </svg>`,
+
+            'B': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="wB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#dfcfb2"/></linearGradient>
+                    </defs>
+                    <circle cx="50" cy="15" r="5" fill="#ffe899" stroke="#2b1810" stroke-width="2"/>
+                    <path d="M 50 20 Q 30 35 32 58 Q 30 82 32 88 L 68 88 Q 70 82 68 58 Q 70 35 50 20 Z" fill="url(#wB)" stroke="#2b1810" stroke-width="4"/>
+                    <path d="M 40 40 L 60 52 M 60 40 L 40 52" stroke="#2b1810" stroke-width="4" stroke-linecap="round"/>
+                    <rect x="22" y="82" width="56" height="10" rx="4" fill="url(#wB)" stroke="#2b1810" stroke-width="3"/>
+                  </svg>`,
+
+            'N': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="wN" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#dac8a6"/></linearGradient>
+                    </defs>
+                    <path d="M 28 88 Q 26 58 40 42 Q 32 38 25 45 Q 20 30 38 20 Q 62 12 75 35 Q 82 50 70 88 Z" fill="url(#wN)" stroke="#2b1810" stroke-width="4"/>
+                    <circle cx="55" cy="30" r="5" fill="#2b1810"/>
+                    <circle cx="57" cy="28" r="1.5" fill="#ffffff"/>
+                    <path d="M 38 52 Q 48 58 58 50" stroke="#2b1810" stroke-width="3" fill="none" stroke-linecap="round"/>
+                    <rect x="22" y="82" width="56" height="10" rx="4" fill="url(#wN)" stroke="#2b1810" stroke-width="3"/>
+                  </svg>`,
+
+            'P': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="wP" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#ded0b6"/></linearGradient>
+                    </defs>
+                    <circle cx="50" cy="28" r="16" fill="url(#wP)" stroke="#2b1810" stroke-width="4"/>
+                    <path d="M 35 44 Q 30 65 30 84 L 70 84 Q 70 65 65 44 Z" fill="url(#wP)" stroke="#2b1810" stroke-width="4"/>
+                    <rect x="24" y="82" width="52" height="10" rx="4" fill="url(#wP)" stroke="#2b1810" stroke-width="3"/>
+                  </svg>`,
+
+            // BLACK CARTOON PIECES (Obsidian Slate + Gold/Silver Accents + Glowing Rim Outline)
+            'k': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="bG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3a4556"/><stop offset="100%" stop-color="#111827"/></linearGradient>
+                        <linearGradient id="bGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#b45309"/></linearGradient>
+                    </defs>
+                    <path d="M 50 10 L 50 22 M 44 16 L 56 16" stroke="#fbbf24" stroke-width="5" stroke-linecap="round"/>
+                    <path d="M 22 88 Q 20 55 32 40 Q 30 24 50 24 Q 70 24 68 40 Q 80 55 78 88 Z" fill="url(#bG)" stroke="#f8fafc" stroke-width="3"/>
+                    <ellipse cx="50" cy="36" rx="20" ry="10" fill="url(#bGold)" stroke="#f8fafc" stroke-width="2"/>
+                    <circle cx="50" cy="58" r="8" fill="#fbbf24" stroke="#111827" stroke-width="2"/>
+                    <rect x="20" y="82" width="60" height="10" rx="4" fill="url(#bGold)" stroke="#f8fafc" stroke-width="2"/>
+                  </svg>`,
+
+            'q': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="bQ" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#0f172a"/></linearGradient>
+                        <linearGradient id="bGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#b45309"/></linearGradient>
+                    </defs>
+                    <circle cx="22" cy="22" r="5" fill="#f43f5e" stroke="#f8fafc" stroke-width="1.5"/>
+                    <circle cx="50" cy="16" r="6" fill="#3b82f6" stroke="#f8fafc" stroke-width="1.5"/>
+                    <circle cx="78" cy="22" r="5" fill="#f43f5e" stroke="#f8fafc" stroke-width="1.5"/>
+                    <path d="M 22 26 L 33 42 L 50 22 L 67 42 L 78 26 L 74 88 L 26 88 Z" fill="url(#bQ)" stroke="#f8fafc" stroke-width="3"/>
+                    <path d="M 30 48 Q 50 58 70 48 L 68 82 Q 50 88 32 82 Z" fill="url(#bGold)" stroke="#111827" stroke-width="2"/>
+                    <rect x="20" y="82" width="60" height="10" rx="4" fill="url(#bQ)" stroke="#f8fafc" stroke-width="2"/>
+                  </svg>`,
+
+            'r': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="bR" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#111827"/></linearGradient>
+                    </defs>
+                    <path d="M 25 22 H 35 V 32 H 45 V 22 H 55 V 32 H 65 V 22 H 75 V 40 L 68 46 V 82 H 32 V 46 L 25 40 Z" fill="url(#bR)" stroke="#f8fafc" stroke-width="3"/>
+                    <line x1="32" y1="52" x2="68" y2="52" stroke="#94a3b8" stroke-width="2"/>
+                    <line x1="32" y1="72" x2="68" y2="72" stroke="#94a3b8" stroke-width="2"/>
+                    <rect x="20" y="82" width="60" height="10" rx="4" fill="url(#bR)" stroke="#f8fafc" stroke-width="2"/>
+                  </svg>`,
+
+            'b': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="bB" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#111827"/></linearGradient>
+                    </defs>
+                    <circle cx="50" cy="15" r="5" fill="#fbbf24" stroke="#f8fafc" stroke-width="1.5"/>
+                    <path d="M 50 20 Q 30 35 32 58 Q 30 82 32 88 L 68 88 Q 70 82 68 58 Q 70 35 50 20 Z" fill="url(#bB)" stroke="#f8fafc" stroke-width="3"/>
+                    <path d="M 40 40 L 60 52 M 60 40 L 40 52" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/>
+                    <rect x="22" y="82" width="56" height="10" rx="4" fill="url(#bB)" stroke="#f8fafc" stroke-width="2"/>
+                  </svg>`,
+
+            'n': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="bN" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#111827"/></linearGradient>
+                    </defs>
+                    <path d="M 28 88 Q 26 58 40 42 Q 32 38 25 45 Q 20 30 38 20 Q 62 12 75 35 Q 82 50 70 88 Z" fill="url(#bN)" stroke="#f8fafc" stroke-width="3"/>
+                    <circle cx="55" cy="30" r="5" fill="#fbbf24"/>
+                    <circle cx="57" cy="28" r="1.5" fill="#ffffff"/>
+                    <path d="M 38 52 Q 48 58 58 50" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linecap="round"/>
+                    <rect x="22" y="82" width="56" height="10" rx="4" fill="url(#bN)" stroke="#f8fafc" stroke-width="2"/>
+                  </svg>`,
+
+            'p': `<svg class="piece-icon" viewBox="0 0 100 100">
+                    <defs>
+                        <linearGradient id="bP" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#111827"/></linearGradient>
+                    </defs>
+                    <circle cx="50" cy="28" r="16" fill="url(#bP)" stroke="#f8fafc" stroke-width="3"/>
+                    <path d="M 35 44 Q 30 65 30 84 L 70 84 Q 70 65 65 44 Z" fill="url(#bP)" stroke="#f8fafc" stroke-width="3"/>
+                    <rect x="24" y="82" width="52" height="10" rx="4" fill="url(#bP)" stroke="#f8fafc" stroke-width="2"/>
+                  </svg>`
+        };
+
+        const SCORES = { 'P': 1, 'p': 1, 'N': 3, 'n': 3, 'B': 3, 'b': 3, 'R': 5, 'r': 5, 'Q': 9, 'q': 9, 'K': 100, 'k': 100 };
+
+        let state = {
+            mode: 'beginner',
+            timerMinutes: 15,
+            board: [
+                ['r','n','b','q','k','b','n','r'],
+                ['p','p','p','p','p','p','p','p'],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['P','P','P','P','P','P','P','P'],
+                ['R','N','B','Q','K','B','N','R']
+            ],
+            turn: 'w',
+            selectedSq: null,
+            legalMoves: [],
+            ideaMove: null,
+            history: [],
+            redoStack: [],
+            whiteScore: 0,
+            blackScore: 0,
+            whiteCaptures: [],
+            blackCaptures: [],
+            whiteTime: 15 * 60,
+            blackTime: 15 * 60,
+            timerInterval: null,
+            audioEnabled: true,
+            userName: 'Guest',
+            isOnline: false,
+            roomCode: null,
+            playerRole: 'w',
+            friends: []
+        };
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            if (!state.audioEnabled) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'tak') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.04);
+                    gain.gain.setValueAtTime(0.7, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.04);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.04);
+                } else if (type === 'capture') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(540, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime + 0.09);
+                    gain.gain.setValueAtTime(0.8, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.09);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.09);
+                } else if (type === 'win') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                    osc.frequency.setValueAtTime(554, audioCtx.currentTime + 0.12);
+                    osc.frequency.setValueAtTime(659, audioCtx.currentTime + 0.24);
+                    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.36);
+                    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.6);
+                }
+            } catch(e) {}
+        }
+
+        function selectMode(m) {
+            state.mode = m;
+            document.getElementById('card-beginner').className = m === 'beginner' 
+                ? "p-4 rounded-2xl border-2 border-wood-gold bg-wood-800/80 cursor-pointer text-left transition-all duration-200 flex items-center justify-between shadow-lg"
+                : "p-4 rounded-2xl border-2 border-slate-800 bg-slate-900/60 cursor-pointer text-left transition-all duration-200 flex items-center justify-between shadow";
+            
+            document.getElementById('card-pro').className = m === 'pro' 
+                ? "p-4 rounded-2xl border-2 border-wood-gold bg-wood-800/80 cursor-pointer text-left transition-all duration-200 flex items-center justify-between shadow-lg"
+                : "p-4 rounded-2xl border-2 border-slate-800 bg-slate-900/60 cursor-pointer text-left transition-all duration-200 flex items-center justify-between shadow";
+
+            document.getElementById('icon-beginner').className = m === 'beginner' ? "fa-solid fa-circle-check text-wood-lightgold text-xl" : "fa-solid fa-circle-check text-slate-700 text-xl";
+            document.getElementById('icon-pro').className = m === 'pro' ? "fa-solid fa-circle-check text-wood-lightgold text-xl" : "fa-solid fa-circle-check text-slate-700 text-xl";
+
+            const proTimerBox = document.getElementById('pro-timer-box');
+            if (m === 'pro') {
+                proTimerBox.classList.remove('hidden');
+            } else {
+                proTimerBox.classList.add('hidden');
+            }
+        }
+
+        function setProTimer(mins) {
+            state.timerMinutes = mins;
+            document.getElementById('btn-timer-15').className = mins === 15 
+                ? "py-2.5 text-xs font-extrabold rounded-xl border border-wood-gold bg-wood-gold/20 text-wood-lightgold shadow"
+                : "py-2.5 text-xs font-extrabold rounded-xl border border-slate-800 bg-slate-900 text-slate-400";
+            document.getElementById('btn-timer-30').className = mins === 30 
+                ? "py-2.5 text-xs font-extrabold rounded-xl border border-wood-gold bg-wood-gold/20 text-wood-lightgold shadow"
+                : "py-2.5 text-xs font-extrabold rounded-xl border border-slate-800 bg-slate-900 text-slate-400";
+        }
+
+        function toggleAudio() {
+            state.audioEnabled = !state.audioEnabled;
+            document.getElementById('audio-icon').className = state.audioEnabled ? "fa-solid fa-volume-high text-xs" : "fa-solid fa-volume-xmark text-xs text-rose-400";
+        }
+
+        function showHomeScreen() {
+            clearInterval(state.timerInterval);
+            document.getElementById('home-screen').classList.remove('hidden');
+            document.getElementById('game-arena').classList.add('hidden');
+            document.getElementById('nav-home-btn').classList.add('hidden');
+            document.getElementById('chat-toggle-btn').classList.add('hidden');
+            document.getElementById('chat-drawer').classList.add('hidden');
+            document.getElementById('active-mode-tag').innerText = "Grandmaster Edition";
+        }
+
+        function startMatch(type) {
+            document.getElementById('home-screen').classList.add('hidden');
+            document.getElementById('game-arena').classList.remove('hidden');
+            document.getElementById('nav-home-btn').classList.remove('hidden');
+            document.getElementById('win-modal').classList.add('hidden');
+
+            const isPro = state.mode === 'pro';
+            document.getElementById('chessboard').className = `w-full h-full grid grid-cols-8 grid-rows-8 rounded-lg overflow-hidden ${isPro ? 'theme-pro' : 'theme-beginner'}`;
+            document.getElementById('beginner-controls').style.display = isPro ? 'none' : 'flex';
+            document.getElementById('active-mode-tag').innerText = isPro ? `Professional Mode (${state.timerMinutes}m)` : "Beginner Gamer Mode";
+
+            if (isPro) {
+                document.getElementById('white-timer-display').classList.remove('hidden');
+                document.getElementById('black-timer-display').classList.remove('hidden');
+                state.whiteTime = state.timerMinutes * 60;
+                state.blackTime = state.timerMinutes * 60;
+                updateTimersDisplay();
+                startTimerLoop();
+            } else {
+                document.getElementById('white-timer-display').classList.add('hidden');
+                document.getElementById('black-timer-display').classList.add('hidden');
+            }
+
+            // Reset Game Board
+            state.board = [
+                ['r','n','b','q','k','b','n','r'],
+                ['p','p','p','p','p','p','p','p'],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['P','P','P','P','P','P','P','P'],
+                ['R','N','B','Q','K','B','N','R']
+            ];
+            state.turn = 'w';
+            state.selectedSq = null;
+            state.legalMoves = [];
+            state.ideaMove = null;
+            state.history = [];
+            state.redoStack = [];
+            state.whiteScore = 0;
+            state.blackScore = 0;
+            state.whiteCaptures = [];
+            state.blackCaptures = [];
+
+            renderBoard();
+            updateScores();
+        }
+
+        function renderBoard() {
+            const boardEl = document.getElementById('chessboard');
+            boardEl.innerHTML = '';
+
+            const isKingInCheck = checkKingDanger(state.turn);
+            document.getElementById('check-alert').classList.toggle('hidden', !isKingInCheck);
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const sq = document.createElement('div');
+                    const isLight = (r + c) % 2 === 0;
+                    sq.className = `square ${isLight ? 'sq-light' : 'sq-dark'}`;
+
+                    if (state.selectedSq && state.selectedSq.r === r && state.selectedSq.c === c) {
+                        sq.classList.add('sq-selected');
+                    }
+
+                    const isLegal = state.legalMoves.some(m => m.r === r && m.c === c);
+                    if (isLegal) {
+                        const targetPiece = state.board[r][c];
+                        if (targetPiece) sq.classList.add('sq-capture');
+                        else sq.classList.add('sq-highlight');
+                    }
+
+                    if (state.ideaMove && state.ideaMove.r === r && state.ideaMove.c === c) {
+                        sq.classList.add('sq-idea');
+                    }
+
+                    const p = state.board[r][c];
+                    if (p) {
+                        sq.innerHTML = PIECE_SVGS[p] || '';
+                    }
+
+                    sq.onclick = () => handleSquareClick(r, c);
+                    boardEl.appendChild(sq);
+                }
+            }
+
+            document.getElementById('turn-banner').innerText = `${state.turn === 'w' ? 'White Player' : 'Black Player'} Turn`;
+        }
+
+        function handleSquareClick(r, c) {
+            if (state.isOnline && state.turn !== state.playerRole) return;
+
+            const piece = state.board[r][c];
+            const isMyPiece = piece && ((state.turn === 'w' && piece === piece.toUpperCase()) || (state.turn === 'b' && piece === piece.toLowerCase()));
+
+            if (state.selectedSq) {
+                const move = state.legalMoves.find(m => m.r === r && m.c === c);
+                if (move) {
+                    executeMove(state.selectedSq, { r, c });
+                    state.selectedSq = null;
+                    state.legalMoves = [];
+                    state.ideaMove = null;
+                    return;
+                }
+            }
+
+            if (isMyPiece) {
+                state.selectedSq = { r, c };
+                state.legalMoves = getLegalMovesForSquare(r, c);
+                state.ideaMove = null;
+            } else {
+                state.selectedSq = null;
+                state.legalMoves = [];
+            }
+            renderBoard();
+        }
+
+        function getLegalMovesForSquare(r, c) {
+            const p = state.board[r][c];
+            if (!p) return [];
+            const isWhite = p === p.toUpperCase();
+            const moves = [];
+
+            const directions = {
+                'P': [[-1, 0], [-2, 0], [-1, -1], [-1, 1]],
+                'p': [[1, 0], [2, 0], [1, -1], [1, 1]],
+                'N': [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]],
+                'B': [[-1,-1],[-1,1],[1,-1],[1,1]],
+                'R': [[-1,0],[1,0],[0,-1],[0,1]],
+                'Q': [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]],
+                'K': [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]
+            };
+
+            const type = p.toUpperCase();
+
+            if (type === 'P') {
+                const dir = isWhite ? -1 : 1;
+                // Forward step
+                if (r + dir >= 0 && r + dir < 8 && !state.board[r + dir][c]) {
+                    moves.push({ r: r + dir, c });
+                    // Double step
+                    const startRow = isWhite ? 6 : 1;
+                    if (r === startRow && !state.board[r + 2 * dir][c]) {
+                        moves.push({ r: r + 2 * dir, c });
+                    }
+                }
+                // Captures
+                for (let dc of [-1, 1]) {
+                    const nr = r + dir, nc = c + dc;
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        const target = state.board[nr][nc];
+                        if (target && (isWhite ? target === target.toLowerCase() : target === target.toUpperCase())) {
+                            moves.push({ r: nr, c: nc });
+                        }
+                    }
+                }
+            } else if (type === 'N' || type === 'K') {
+                const dirs = directions[type];
+                for (let [dr, dc] of dirs) {
+                    const nr = r + dr, nc = c + dc;
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        const target = state.board[nr][nc];
+                        if (!target || (isWhite ? target === target.toLowerCase() : target === target.toUpperCase())) {
+                            moves.push({ r: nr, c: nc });
+                        }
+                    }
+                }
+            } else {
+                // Sliding pieces (B, R, Q)
+                const dirs = directions[type];
+                for (let [dr, dc] of dirs) {
+                    let nr = r + dr, nc = c + dc;
+                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        const target = state.board[nr][nc];
+                        if (!target) {
+                            moves.push({ r: nr, c: nc });
+                        } else {
+                            if (isWhite ? target === target.toLowerCase() : target === target.toUpperCase()) {
+                                moves.push({ r: nr, c: nc });
+                            }
+                            break;
+                        }
+                        nr += dr;
+                        nc += dc;
+                    }
+                }
+            }
+
+            return moves;
+        }
+
+        function executeMove(from, to) {
+            const movingPiece = state.board[from.r][from.c];
+            const capturedPiece = state.board[to.r][to.c];
+
+            // Save history for undo
+            state.history.push({
+                board: JSON.parse(JSON.stringify(state.board)),
+                turn: state.turn,
+                whiteScore: state.whiteScore,
+                blackScore: state.blackScore,
+                whiteCaptures: [...state.whiteCaptures],
+                blackCaptures: [...state.blackCaptures]
+            });
+            state.redoStack = [];
+
+            // Move piece
+            state.board[to.r][to.c] = movingPiece;
+            state.board[from.r][from.c] = '';
+
+            // Pawn promotion
+            if (movingPiece === 'P' && to.r === 0) state.board[to.r][to.c] = 'Q';
+            if (movingPiece === 'p' && to.r === 7) state.board[to.r][to.c] = 'q';
+
+            if (capturedPiece) {
+                playSound('capture');
+                const val = SCORES[capturedPiece] || 1;
+                if (state.turn === 'w') {
+                    state.whiteScore += val;
+                    state.whiteCaptures.push(capturedPiece);
+                } else {
+                    state.blackScore += val;
+                    state.blackCaptures.push(capturedPiece);
+                }
+                showPopup(`+${val} Points!`);
+
+                if (capturedPiece.toUpperCase() === 'K') {
+                    playSound('win');
+                    triggerWin(state.turn === 'w' ? 'White Player' : 'Black Player');
+                    return;
+                }
+            } else {
+                playSound('tak');
+            }
+
+            state.turn = state.turn === 'w' ? 'b' : 'w';
+            renderBoard();
+            updateScores();
+
+            if (state.isOnline) {
+                syncOnlineState();
+            }
+        }
+
+        function checkKingDanger(turnColor) {
+            const kingChar = turnColor === 'w' ? 'K' : 'k';
+            let kingPos = null;
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (state.board[r][c] === kingChar) {
+                        kingPos = { r, c };
+                        break;
+                    }
+                }
+            }
+            if (!kingPos) return false;
+
+            const enemyColor = turnColor === 'w' ? 'b' : 'w';
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const p = state.board[r][c];
+                    if (p && (enemyColor === 'w' ? p === p.toUpperCase() : p === p.toLowerCase())) {
+                        const moves = getLegalMovesForSquare(r, c);
+                        if (moves.some(m => m.r === kingPos.r && m.c === kingPos.c)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function getIdeaHint() {
+            let possibleMoves = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const p = state.board[r][c];
+                    if (p && ((state.turn === 'w' && p === p.toUpperCase()) || (state.turn === 'b' && p === p.toLowerCase()))) {
+                        const moves = getLegalMovesForSquare(r, c);
+                        moves.forEach(m => possibleMoves.push({ from: { r, c }, to: m }));
+                    }
+                }
+            }
+
+            if (possibleMoves.length > 0) {
+                // Priority to captures
+                const captures = possibleMoves.filter(m => state.board[m.to.r][m.to.c] !== '');
+                const chosen = captures.length > 0 ? captures[Math.floor(Math.random() * captures.length)] : possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+
+                state.selectedSq = chosen.from;
+                state.legalMoves = getLegalMovesForSquare(chosen.from.r, chosen.from.c);
+                state.ideaMove = chosen.to;
+                renderBoard();
+            }
+        }
+
+        function undoMove() {
+            if (state.history.length === 0) return;
+            state.redoStack.push({
+                board: JSON.parse(JSON.stringify(state.board)),
+                turn: state.turn,
+                whiteScore: state.whiteScore,
+                blackScore: state.blackScore,
+                whiteCaptures: [...state.whiteCaptures],
+                blackCaptures: [...state.blackCaptures]
+            });
+            const last = state.history.pop();
+            state.board = last.board;
+            state.turn = last.turn;
+            state.whiteScore = last.whiteScore;
+            state.blackScore = last.blackScore;
+            state.whiteCaptures = last.whiteCaptures;
+            state.blackCaptures = last.blackCaptures;
+            state.selectedSq = null;
+            state.legalMoves = [];
+            state.ideaMove = null;
+            renderBoard();
+            updateScores();
+        }
+
+        function redoMove() {
+            if (state.redoStack.length === 0) return;
+            state.history.push({
+                board: JSON.parse(JSON.stringify(state.board)),
+                turn: state.turn,
+                whiteScore: state.whiteScore,
+                blackScore: state.blackScore,
+                whiteCaptures: [...state.whiteCaptures],
+                blackCaptures: [...state.blackCaptures]
+            });
+            const next = state.redoStack.pop();
+            state.board = next.board;
+            state.turn = next.turn;
+            state.whiteScore = next.whiteScore;
+            state.blackScore = next.blackScore;
+            state.whiteCaptures = next.whiteCaptures;
+            state.blackCaptures = next.blackCaptures;
+            renderBoard();
+            updateScores();
+        }
+
+        function updateScores() {
+            document.getElementById('white-score').innerText = state.whiteScore;
+            document.getElementById('black-score').innerText = state.blackScore;
+
+            const wGrave = document.getElementById('white-graveyard');
+            const bGrave = document.getElementById('black-graveyard');
+
+            wGrave.innerHTML = state.whiteCaptures.map(p => `<div class="w-6 h-6 flex items-center justify-center">${PIECE_SVGS[p]}</div>`).join('');
+            bGrave.innerHTML = state.blackCaptures.map(p => `<div class="w-6 h-6 flex items-center justify-center">${PIECE_SVGS[p]}</div>`).join('');
+        }
+
+        function triggerWin(winnerName) {
+            clearInterval(state.timerInterval);
+            document.getElementById('win-title').innerText = `${winnerName.toUpperCase()} VICTORY!`;
+            document.getElementById('win-desc').innerText = `Congratulations! ${winnerName} won the match.`;
+            document.getElementById('win-modal').classList.remove('hidden');
+        }
+
+        function showPopup(txt) {
+            const pop = document.createElement('div');
+            pop.className = 'score-popup bg-gradient-to-r from-wood-lightgold to-wood-gold text-wood-dark font-black px-4 py-2 rounded-2xl shadow-2xl border border-yellow-100 text-sm tracking-wider';
+            pop.innerText = txt;
+            document.getElementById('popup-container').appendChild(pop);
+            setTimeout(() => pop.remove(), 2000);
+        }
+
+        // TIMER SYSTEM FOR PRO MODE
+        function startTimerLoop() {
+            clearInterval(state.timerInterval);
+            state.timerInterval = setInterval(() => {
+                if (state.turn === 'w') {
+                    state.whiteTime--;
+                    if (state.whiteTime <= 0) triggerWin('Black Player (Time Out)');
+                } else {
+                    state.blackTime--;
+                    if (state.blackTime <= 0) triggerWin('White Player (Time Out)');
+                }
+                updateTimersDisplay();
+            }, 1000);
+        }
+
+        function updateTimersDisplay() {
+            const fmt = s => {
+                const m = Math.floor(s / 60);
+                const sec = s % 60;
+                return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+            };
+            document.getElementById('white-timer-display').innerText = fmt(state.whiteTime);
+            document.getElementById('black-timer-display').innerText = fmt(state.blackTime);
+        }
+
+        // ONLINE REALTIME MULTIPLAYER MODAL & CHAT FUNCTIONS
+        function openOnlineModal() {
+            document.getElementById('online-modal').classList.remove('hidden');
+        }
+        function closeOnlineModal() {
+            document.getElementById('online-modal').classList.add('hidden');
+        }
+        function toggleChatDrawer() {
+            const drawer = document.getElementById('chat-drawer');
+            drawer.classList.toggle('hidden');
+        }
+
+        async function createOnlineRoom() {
+            const code = Math.floor(100000 + Math.random() * 900000).toString();
+            state.roomCode = code;
+            state.isOnline = true;
+            state.playerRole = 'w';
+            document.getElementById('room-code-display').innerText = code;
+            document.getElementById('generated-code-box').classList.remove('hidden');
+            
+            try {
+                const docRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', code);
+                await window.setDoc(docRef, {
+                    board: JSON.stringify(state.board),
+                    turn: 'w',
+                    whiteScore: 0,
+                    blackScore: 0
+                });
+                listenToRoom(code);
+                document.getElementById('chat-toggle-btn').classList.remove('hidden');
+            } catch(e) { console.log('Firebase room err:', e); }
+        }
+
+        async function joinOnlineRoom() {
+            const code = document.getElementById('join-code-input').value.trim();
+            if (code.length !== 6) return;
+            state.roomCode = code;
+            state.isOnline = true;
+            state.playerRole = 'b';
+            closeOnlineModal();
+            startMatch('pass-play');
+            listenToRoom(code);
+            document.getElementById('chat-toggle-btn').classList.remove('hidden');
+        }
+
+        function listenToRoom(code) {
+            const docRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', code);
+            window.onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    state.board = JSON.parse(data.board);
+                    state.turn = data.turn;
+                    state.whiteScore = data.whiteScore || 0;
+                    state.blackScore = data.blackScore || 0;
+                    renderBoard();
+                    updateScores();
+                }
+            }, (err) => console.log('Sync error:', err));
+        }
+
+        async function syncOnlineState() {
+            if (!state.roomCode) return;
+            const docRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'rooms', state.roomCode);
+            await window.updateDoc(docRef, {
+                board: JSON.stringify(state.board),
+                turn: state.turn,
+                whiteScore: state.whiteScore,
+                blackScore: state.blackScore
+            });
+        }
+
+        function sendChatMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const msg = input.value.trim();
+            if (!msg) return;
+            const container = document.getElementById('chat-messages');
+            const item = document.createElement('div');
+            item.className = 'p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-200';
+            item.innerHTML = `<span class="font-bold text-wood-lightgold">${state.userName}:</span> ${msg}`;
+            container.appendChild(item);
+            container.scrollTop = container.scrollHeight;
+            input.value = '';
+        }
+
+        function addFriend() {
+            const val = document.getElementById('add-friend-input').value.trim();
+            if (!val) return;
+            state.friends.push(val);
+            document.getElementById('friends-list').innerHTML = state.friends.map(f => `<div class="p-1 rounded bg-slate-900 flex justify-between"><span>${f}</span><span class="text-emerald-400">Online</span></div>`).join('');
+            document.getElementById('add-friend-input').value = '';
+        }
+
+        // ACCOUNT MODAL FUNCTIONS
+        function openAuthModal() {
+            document.getElementById('auth-modal').classList.remove('hidden');
+        }
+        function closeAuthModal() {
+            document.getElementById('auth-modal').classList.add('hidden');
+        }
+        function saveUserAccount(e) {
+            e.preventDefault();
+            const name = document.getElementById('acc-name').value.trim();
+            if (name) {
+                state.userName = name;
+                document.getElementById('player-display-name').innerText = name;
+                document.getElementById('avatar-circle').innerText = name.charAt(0).toUpperCase();
+            }
+            closeAuthModal();
+        }
+
+        // Default initial mode state
+        selectMode('beginner');
+    </script>
+</body>
+</html>
